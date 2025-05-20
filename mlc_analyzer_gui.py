@@ -123,33 +123,42 @@ def parse_mlc_data(filepath, status_callback=None):
     return organized_data, num_actual_runs
 
 
+# In analyze_data function:
+
 def analyze_data(parsed_data, num_runs, tolerance_mm, status_callback=None):
     if status_callback: status_callback("Analyzing data...")
     results = []
     all_deviations = []
     all_stds = []
+    all_ranges = []  # New list for range ranking
 
     if num_runs == 0:
         if status_callback: status_callback("No runs to analyze.")
-        return pd.DataFrame(), [], []
+        return pd.DataFrame(), [], [], []  # Added one more empty list for new return
 
     for bank_name, list_of_leaf_runs in parsed_data.items():
         try:
             nominal_setpoint = extract_nominal_from_bank_name(bank_name)
         except ValueError as e:
             if status_callback: status_callback(f"Skipping bank '{bank_name}': {e}")
-            continue  # Skip this bank if nominal can't be extracted
+            continue
 
         for leaf_idx in range(NUM_LEAVES):
             measurements = np.array(list_of_leaf_runs[leaf_idx])
             valid_measurements = measurements[~np.isnan(measurements)]
 
+            mean_pos, std_dev, deviation = np.nan, np.nan, np.nan
+            positional_range = np.nan  # Default for cases with < 2 measurements
+
             if len(valid_measurements) > 0:
                 mean_pos = np.mean(valid_measurements)
-                std_dev = np.std(valid_measurements)
                 deviation = mean_pos - nominal_setpoint
-            else:
-                mean_pos, std_dev, deviation = np.nan, np.nan, np.nan
+                if len(valid_measurements) > 1:
+                    std_dev = np.std(valid_measurements)
+                    positional_range = np.ptp(valid_measurements)  # Peak-to-peak (max - min)
+                elif len(valid_measurements) == 1:  # Single measurement
+                    std_dev = 0.0  # Std dev of a single point is 0
+                    positional_range = 0.0  # Range of a single point is 0
 
             is_out_of_tolerance = abs(deviation) > tolerance_mm if not np.isnan(deviation) else False
             leaf_id_str = f"{'L' if 'Left' in bank_name else 'R'}{leaf_idx + 1}"
@@ -157,22 +166,28 @@ def analyze_data(parsed_data, num_runs, tolerance_mm, status_callback=None):
             results.append({
                 'Bank': bank_name, 'Leaf Index': leaf_idx, 'Leaf ID': leaf_id_str,
                 'Nominal (mm)': nominal_setpoint, 'Measurements (mm)': valid_measurements.tolist(),
-                'Mean Position (mm)': mean_pos, 'Std Dev (mm)': std_dev,
-                'Deviation (mm)': deviation, 'Out of Tolerance': is_out_of_tolerance
+                'Mean Position (mm)': mean_pos,
+                'Std Dev (mm)': std_dev,
+                'Deviation (mm)': deviation,
+                'Range (mm)': positional_range,  # New metric added here
+                'Out of Tolerance': is_out_of_tolerance
             })
             if not np.isnan(deviation):
                 all_deviations.append({'Leaf ID': leaf_id_str, 'Bank': bank_name, 'Value': abs(deviation)})
             if not np.isnan(std_dev):
                 all_stds.append({'Leaf ID': leaf_id_str, 'Bank': bank_name, 'Value': std_dev})
+            if not np.isnan(positional_range):  # Add to range ranking list
+                all_ranges.append({'Leaf ID': leaf_id_str, 'Bank': bank_name, 'Value': positional_range})
 
     df_results = pd.DataFrame(results)
     ranked_inaccurate = sorted([d for d in all_deviations if not np.isnan(d['Value'])], key=lambda x: x['Value'],
                                reverse=True)
     ranked_imprecise = sorted([s for s in all_stds if not np.isnan(s['Value'])], key=lambda x: x['Value'], reverse=True)
+    ranked_by_range = sorted([r for r in all_ranges if not np.isnan(r['Value'])], key=lambda x: x['Value'],
+                             reverse=True)  # New ranking
 
     if status_callback: status_callback("Data analysis complete.")
-    return df_results, ranked_inaccurate, ranked_imprecise
-
+    return df_results, ranked_inaccurate, ranked_imprecise, ranked_by_range  # New return value
 
 def create_plot_img(df_results, plot_type, bank_filter=None, tolerance_mm=1.0):
     plt.figure(figsize=(15, 7))
@@ -280,8 +295,7 @@ def create_heatmap_plot_img(df_results, value_col, title):
     return img_buffer
 
 
-def build_pdf_report(filepath, df_results, ranked_inaccurate, ranked_imprecise, num_runs, tolerance_mm,
-                     status_callback=None):
+def build_pdf_report(filepath, df_results, ranked_inaccurate, ranked_imprecise, ranked_by_range, num_runs, tolerance_mm, status_callback=None): # Added ranked_by_range
     if status_callback: status_callback("Building PDF report...")
     doc = SimpleDocTemplate(filepath, pagesize=landscape(letter))
     styles = getSampleStyleSheet()
@@ -321,6 +335,7 @@ def build_pdf_report(filepath, df_results, ranked_inaccurate, ranked_imprecise, 
     story.append(Spacer(1, 0.2 * inch));
     story.append(PageBreak())
 
+    # --- Ranking: Most Inaccurate ---
     story.append(Paragraph("Top 10 Most Inaccurate Leaves", styles['h2']))
     if ranked_inaccurate:
         data = [["Rank", "Leaf ID", "Bank", "Abs. Deviation (mm)"]] + \
@@ -334,6 +349,7 @@ def build_pdf_report(filepath, df_results, ranked_inaccurate, ranked_imprecise, 
         story.append(Paragraph("No inaccuracy data.", styles['Normal']))
     story.append(Spacer(1, 0.2 * inch))
 
+    # --- Ranking: Most Imprecise (Std Dev based) ---
     story.append(Paragraph("Top 10 Most Imprecise Leaves", styles['h2']))
     if ranked_imprecise:
         data = [["Rank", "Leaf ID", "Bank", "Std. Deviation (mm)"]] + \
@@ -344,23 +360,59 @@ def build_pdf_report(filepath, df_results, ranked_inaccurate, ranked_imprecise, 
             [('BACKGROUND', (0, 0), (-1, 0), colors.lightblue), ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
         story.append(t)
     else:
-        story.append(Paragraph("No imprecision data.", styles['Normal']))
+        story.append(Paragraph("No imprecision (std dev) data.", styles['Normal']))
+        story.append(Spacer(1, 0.2 * inch))
+
+    # --- Ranking: Largest Positional Range ---
+    story.append(Paragraph("Top 10 Leaves by Largest Positional Range (Max - Min)", styles['h2']))
+    if ranked_by_range:
+        range_data = [["Rank", "Leaf ID", "Bank", "Range (mm)"]]
+        for i, item in enumerate(ranked_by_range[:10]):
+            range_data.append([i + 1, item['Leaf ID'], item['Bank'], f"{item['Value']:.3f}"])
+
+        t_range = Table(range_data, colWidths=[0.5 * inch, 0.7 * inch, 2.5 * inch, 1.5 * inch], hAlign='LEFT')
+        t_range.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.Color(0.2, 0.5, 0.5)),  # A teal-like color
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(t_range)
+    else:
+        story.append(Paragraph("No positional range data to rank.", styles['Normal']))
     story.append(PageBreak())
 
     if status_callback: status_callback("Generating plots for PDF...")
+    # --- Plots ---
     story.append(Paragraph("Graphical Analysis", styles['h1']))
+    story.append(Spacer(1, 0.2 * inch))
 
-    heatmap_dev_img = create_heatmap_plot_img(df_results, 'Deviation (mm)', 'Heatmap of Mean Leaf Deviation (mm)')
     story.append(Paragraph("Overall Mean Deviation Heatmap", styles['h2']))
+    # ... (text for deviation heatmap) ...
+    heatmap_dev_img = create_heatmap_plot_img(df_results, 'Deviation (mm)',
+                                              'Heatmap of Mean Leaf Deviation (mm) from Nominal')
     story.append(Image(heatmap_dev_img, width=10 * inch, height=3.8 * inch));
     story.append(Spacer(1, 0.1 * inch))
 
-    heatmap_std_img = create_heatmap_plot_img(df_results, 'Std Dev (mm)',
-                                              'Heatmap of Leaf Reproducibility (Std Dev mm)')
     story.append(Paragraph("Overall Reproducibility (Std Dev) Heatmap", styles['h2']))
-    story.append(Image(heatmap_std_img, width=10 * inch, height=3.8 * inch));
+    # ... (text for std dev heatmap) ...
+    heatmap_std_img = create_heatmap_plot_img(df_results, 'Std Dev (mm)',
+                                              'Heatmap of Leaf Reproducibility (Standard Deviation in mm)')
+    story.append(Image(heatmap_std_img, width=10 * inch, height=3.8 * inch))
     story.append(PageBreak())
 
+    #  Heatmap for Positional Range
+    story.append(Paragraph("Overall Positional Range (Max - Min) Heatmap", styles['h2']))
+    story.append(Paragraph(
+        "Color indicates the range (maximum position - minimum position) for each leaf across the test runs. Warmer colors indicate a larger spread in achieved positions.",
+        styles['Normal']))
+    heatmap_range_img = create_heatmap_plot_img(df_results, 'Range (mm)',
+                                                'Heatmap of Leaf Positional Range (Max - Min, in mm)')
+    story.append(Image(heatmap_range_img, width=10 * inch, height=3.8 * inch))
+    story.append(PageBreak())
+
+    # --- Detailed Plots ---
     for bank_keyword, plot_title_prefix in [("Left", "Left Bank"), ("Right", "Right Bank")]:
         if status_callback: status_callback(f"Generating {plot_title_prefix} plots...")
         story.append(Paragraph(f"Detailed Plots: {plot_title_prefix}", styles['h2']))
@@ -478,6 +530,7 @@ class App(ctk.CTk):
 
     def run_analysis_and_report(self, csv_file, pdf_file, tolerance):
         try:
+            self.after(0, self.update_status, "Parsing CSV data...")  # Ensure first status update
             parsed_data, num_runs = parse_mlc_data(csv_file,
                                                    status_callback=lambda msg: self.after(0, self.update_status, msg))
 
@@ -486,17 +539,23 @@ class App(ctk.CTk):
                 self.after(0, lambda: self.generate_button.configure(state="normal", text="Generate Report"))
                 return
 
-            results_df, inaccurate, imprecise = analyze_data(parsed_data, num_runs, tolerance,
-                                                             status_callback=lambda msg: self.after(0,
-                                                                                                    self.update_status,
-                                                                                                    msg))
+            # Capture the new return value from analyze_data
+            results_df, inaccurate, imprecise, by_range = analyze_data(
+                parsed_data, num_runs, tolerance,
+                status_callback=lambda msg: self.after(0, self.update_status, msg)
+            )
+
             if results_df.empty:
                 self.after(0, self.update_status, "Analysis resulted in empty data. Report generation aborted.")
                 self.after(0, lambda: self.generate_button.configure(state="normal", text="Generate Report"))
                 return
 
-            build_pdf_report(pdf_file, results_df, inaccurate, imprecise, num_runs, tolerance,
-                             status_callback=lambda msg: self.after(0, self.update_status, msg))
+            # Pass the new ranking to build_pdf_report
+            build_pdf_report(
+                pdf_file, results_df, inaccurate, imprecise, by_range,
+                num_runs, tolerance,
+                status_callback=lambda msg: self.after(0, self.update_status, msg)
+            )
 
             self.after(0, messagebox.showinfo, "Success", f"Report successfully generated!\n{pdf_file}")
 
