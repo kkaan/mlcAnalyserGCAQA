@@ -77,7 +77,6 @@ The application expects a CSV file with a specific structure. Key aspects includ
     *   etc.
 *   Leaf position values (80 per bank) are listed consecutively in the row, separated by commas, before the "Unit" (e.g., "mm") column.
 
-*(You might want to add a small, anonymized snippet of the expected CSV format here, or link to a separate file describing it in more detail if it's complex).*
 
 ## Building the Executable (Optional)
 
