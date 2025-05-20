@@ -185,7 +185,7 @@ Please make sure to update tests as appropriate.
 
 ## License
 
-[Specify your license here, e.g., MIT, GPLv3, or "Proprietary"](LICENSE.md) *(If you add a LICENSE.md file)*
+[Mozilla Public License Version 2.0](LICENSE.md) 
 
 ---
 
