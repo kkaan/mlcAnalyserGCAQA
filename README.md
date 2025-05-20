@@ -26,8 +26,8 @@ A Python application with a graphical user interface (GUI) designed to analyze M
 
 1.  **Clone the repository (optional, if you've put it on GitHub):**
     ```bash
-    git clone <your-repository-url>
-    cd <repository-name>
+    git clone https://github.com/kkaan/mlcAnalyserGCAQA.git
+    cd mlcAnalyserGCAQA
     ```
 
 2.  **Create and activate a virtual environment (recommended):**
@@ -80,27 +80,102 @@ The application expects a CSV file with a specific structure. Key aspects includ
 
 ## Building the Executable (Optional)
 
-If you want to create a standalone executable:
+If you want to create a standalone executable for easier distribution:
 
-1.  **Ensure PyInstaller is installed:**
+1.  **Ensure PyInstaller is installed in your virtual environment:**
     ```bash
     pip install pyinstaller
     ```
 
-2.  **Navigate to the project directory in your terminal.**
+2.  **Navigate to the project root directory in your terminal.**
 
-3.  **Run the PyInstaller command:**
-    (Replace `your_icon.ico` with your actual icon file or remove the `--icon` flag if not using one. Ensure the path to `customtkinter` site-packages is correct for your system if PyInstaller has trouble finding it automatically.)
+3.  **Generate the `.spec` file (Initial Step):**
+    First, run PyInstaller to generate a `.spec` file. This command might not fully succeed on its own yet if PyInstaller doesn't automatically find all `customtkinter` assets, but it will create the necessary `MLCanalyzer.spec` file (or `<your-app-name>.spec`).
     ```bash
-    pyinstaller --name MLCanalyzer --onefile --windowed --icon=your_icon.ico --add-data "path/to/your/.venv/Lib/site-packages/customtkinter:customtkinter" mlc_analyzer_gui.py
+    pyinstaller --name MLCanalyzer --windowed --onefile mlc_analyzer_gui.py
     ```
-    *   `--name MLCanalyzer`: Name of the executable.
-    *   `--onefile`: Bundle into a single executable.
-    *   `--windowed`: No console window when the GUI runs.
-    *   `--icon=your_icon.ico`: (Optional) Path to your application icon.
-    *   `--add-data "path/to/.../customtkinter:customtkinter"`: Crucial for including CustomTkinter's assets. Adjust the source path to point to the `customtkinter` directory within your virtual environment's `site-packages` folder.
+    *   `--name MLCanalyzer`: Sets the name of your application.
+    *   `--windowed`: Ensures no console window appears when the GUI runs.
+    *   `--onefile`: Creates a single executable file (can be omitted for a faster-starting multi-file distribution in a folder).
+    *   *(You can add `--icon=your_icon.ico` here if you have an icon file ready).*
 
-4.  The executable will be found in the `dist` folder.
+4.  **Modify the `.spec` File to correctly include CustomTkinter data:**
+    This is the recommended and most robust way to ensure `customtkinter`'s themes and assets are included.
+    *   Open the generated `MLCanalyzer.spec` file (it will be in your project's root directory) in a text editor.
+    *   Add the following imports at the top of the `.spec` file if they aren't already there:
+        ```python
+        import os
+        import customtkinter
+        ```
+    *   Find the `Analysis` block, which looks something like this:
+        ```python
+        a = Analysis(
+            ['mlc_analyzer_gui.py'],
+            pathex=['C:\\path\\to\\your\\project'], # Example path
+            binaries=[],
+            datas=[],  # <<< This is the line we will modify
+            hiddenimports=[],
+            # ... other options ...
+        )
+        ```
+    *   Before the `Analysis` block (e.g., right after the imports), determine the path to the `customtkinter` package:
+        ```python
+        # Add this near the top of your .spec file, after the imports
+        customtkinter_path = os.path.dirname(customtkinter.__file__)
+        ```
+    *   Modify the `datas=[]` line within the `Analysis` block to include the `customtkinter` path:
+        ```python
+        a = Analysis(
+            ['mlc_analyzer_gui.py'],
+            pathex=[],
+            binaries=[],
+            datas=[(customtkinter_path, 'customtkinter')], # <<< MODIFIED LINE
+            hiddenimports=[],
+            # ... other options ...
+        )
+        ```
+        This tells PyInstaller to copy the entire `customtkinter` package directory (found dynamically by Python) into a folder named `customtkinter` inside your bundled application.
+
+5.  **Add Icon (Optional - in `.spec` file):**
+    If you want to include an icon and didn't specify it in step 3, you can add it to the `EXE` block within the `.spec` file. Find or add the `EXE` block (it usually comes after the `Analysis` block):
+    ```python
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.zipfiles,
+        a.datas, # This should already include your customtkinter data from the Analysis block
+        [],
+        name='MLCanalyzer',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=False,  # False for --windowed
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon='your_icon.ico' # <<< ADD OR MODIFY THIS LINE
+    )
+    ```
+    Replace `'your_icon.ico'` with the actual path to your icon file (e.g., `'assets/my_icon.ico'` or just `'my_icon.ico'` if it's in the root).
+
+6.  **Save the modified `.spec` file.**
+
+7.  **Build the Executable using the `.spec` file:**
+    Now, run PyInstaller again, but this time point it to your modified `.spec` file:
+    ```bash
+    pyinstaller MLCanalyzer.spec
+    ```
+
+8.  **Find your application:**
+    The final executable (e.g., `MLCanalyzer.exe`) will be located in the `dist` folder. If you used `--onefile`, it will be a single file. Otherwise, `dist/MLCanalyzer` will be a folder containing the executable and its dependencies.
+
+This `.spec` file method is more reliable because Python itself locates the `customtkinter` package, avoiding issues with hardcoded paths that might differ between development environments or operating systems.
 
 ## Contributing
 
