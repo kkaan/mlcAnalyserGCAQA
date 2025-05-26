@@ -5,6 +5,7 @@ import matplotlib
 
 matplotlib.use('Agg')  # Use non-interactive backend for matplotlib when running headless or in thread
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from io import BytesIO
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak
@@ -240,7 +241,7 @@ def create_plot_img(df_results, plot_type, bank_filter=None, tolerance_mm=1.0):
 
 def create_heatmap_plot_img(df_results, value_col, title):
     if df_results.empty or value_col not in df_results.columns:
-        fig, ax = plt.subplots(figsize=(10, 4))  # Smaller placeholder for GUI
+        fig, ax = plt.subplots(figsize=(10, 4))
         ax.text(0.5, 0.5, "No data for heatmap", ha='center', va='center')
         img_buffer = BytesIO()
         plt.savefig(img_buffer, format='png');
@@ -264,36 +265,76 @@ def create_heatmap_plot_img(df_results, value_col, title):
     bank_order = sorted(unique_banks_in_df,
                         key=lambda x: ('Left' not in str(x), extract_nominal_from_bank_name(str(x))))
     pivot_df = df_copy.pivot_table(index='Bank', columns='Leaf Index', values=value_col, dropna=False)
+    # Ensure all NUM_LEAVES columns are present, even if some have all NaNs for a particular bank after pivot
     pivot_df = pivot_df.reindex(index=bank_order, columns=np.arange(NUM_LEAVES))
 
+    # --- Fixed Color Mapping Configuration ---
+    cmap_to_use = None
+    norm = None
+    fixed_plot_vmax = 1.5  # Define a general upper bound for "bad" for consistency
+
+    if 'Deviation (mm)' in value_col:
+        # Goal: Green for ~0, Yellow for intermediate, Red for |deviation| >= 1.0
+        # Using BoundaryNorm for precise color mapping.
+        # Colors: DarkRed, Red, Orange, Yellow, LightGreen (center), Yellow, Orange, Red, DarkRed
+        # We need N colors for N-1 boundaries, or N colors for N+1 boundaries if using ListedColormap with BoundaryNorm.
+        # Let's define colors for specific deviation ranges.
+
+        # Colors: Red for |dev| > 1, Green for |dev| < 0.1, Yellow in between.
+        # Order: High Negative (Red), Mid Negative (Yellow), Near Zero (Green), Mid Positive (Yellow), High Positive (Red)
+        colors_list = ['#d62728', '#ff7f0e', '#dbdb8d', '#2ca02c', '#dbdb8d', '#ff7f0e',
+                       '#d62728']  # Red, Orange, PaleYellow, Green, PaleYellow, Orange, Red
+        cmap_to_use = mcolors.ListedColormap(colors_list)
+
+        # Boundaries: Values less than first bound get color 0, between bound[i] and bound[i+1] get color i+1...
+        # The number of boundaries should be one less than the number of colors if BoundaryNorm clips.
+        # Or, for ListedColormap, N colors and N+1 boundaries works by mapping intervals.
+        # For 7 colors, we define 8 boundaries to create 7 intervals.
+        # Let's define a symmetric fixed range, e.g., -1.5 to 1.5 for full scale.
+        # We want |dev| >= 1.0 to be red.
+        # We want |dev| < 0.1 to be green.
+        bounds = [-fixed_plot_vmax, -1.0, -0.5, -0.1, 0.1, 0.5, 1.0, fixed_plot_vmax]
+        norm = mcolors.BoundaryNorm(boundaries=bounds, ncolors=cmap_to_use.N)
+
+    elif 'Std Dev (mm)' in value_col or 'Range (mm)' in value_col:
+        # Goal: Green for 0, Yellow for intermediate, Red for >= 1.0 (or fixed_plot_vmax for consistency)
+        # Using a sequential colormap that goes from Green to Red. RdYlGn_r is Green->Yellow->Red
+        cmap_to_use = 'RdYlGn_r'
+        # Normalize from 0 to our fixed_plot_vmax (e.g., 1.5mm).
+        # Values above fixed_plot_vmax will be saturated red.
+        # Values around 0 will be green.
+        norm = mcolors.Normalize(vmin=0, vmax=fixed_plot_vmax)
+    else:  # Fallback for any other metric
+        cmap_to_use = 'viridis'
+        # No fixed norm, let it autoscale, or define a default
+        # For safety, let's provide a basic norm if other metrics are added
+        min_val_data = np.nanmin(pivot_df.values)
+        max_val_data = np.nanmax(pivot_df.values)
+        if pd.notna(min_val_data) and pd.notna(max_val_data) and min_val_data < max_val_data:
+            norm = mcolors.Normalize(vmin=min_val_data, vmax=max_val_data)
+        else:  # Handle all NaN or single value case
+            norm = mcolors.Normalize(vmin=0, vmax=1)
+
     plt.figure(figsize=(20, 8))
-    valid_pivot_values = pivot_df.values[~np.isnan(pivot_df.values)]
 
-    if valid_pivot_values.size == 0:
-        plt.imshow(pivot_df.astype(float), aspect='auto', cmap='viridis', interpolation='nearest')
-        plt.text(0.5, 0.5, "All Heatmap Data is NaN", ha='center', va='center', transform=plt.gca().transAxes)
-    else:
-        plt.imshow(pivot_df.astype(float), aspect='auto', cmap='coolwarm', interpolation='nearest')
-        clim_val = np.nanmax(np.abs(valid_pivot_values)) if 'Deviation' in value_col else (
-            np.nanmax(valid_pivot_values) if valid_pivot_values.size > 0 else 1.0)
-        min_val = -clim_val if 'Deviation' in value_col else 0
-        max_val = clim_val if 'Deviation' in value_col else (clim_val if clim_val > min_val else min_val + 0.1)
-        plt.clim(min_val, max_val)
+    # Ensure pivot_df has float type for imshow, especially if it contained NaNs
+    im = plt.imshow(pivot_df.astype(float), aspect='auto', cmap=cmap_to_use, norm=norm, interpolation='nearest')
 
-    plt.colorbar(label=f'{value_col} (mm)')
-    plt.title(title);
-    plt.xlabel('Leaf Number (1-80)');
+    plt.colorbar(im, label=f'{value_col} (mm)', boundaries=bounds if 'Deviation' in value_col else None,
+                 ticks=bounds if 'Deviation' in value_col else None)  # Use boundaries for ticks if BoundaryNorm
+
+    plt.title(title)
+    plt.xlabel('Leaf Number (1-80)')
     plt.ylabel('MLC Bank and Setpoint')
     plt.yticks(ticks=np.arange(len(pivot_df.index)), labels=pivot_df.index)
     plt.xticks(ticks=np.arange(0, NUM_LEAVES, 10), labels=np.arange(1, NUM_LEAVES + 1, 10))
     plt.tight_layout()
 
     img_buffer = BytesIO()
-    plt.savefig(img_buffer, format='png', dpi=100);
-    plt.close();
+    plt.savefig(img_buffer, format='png', dpi=100)
+    plt.close()
     img_buffer.seek(0)
     return img_buffer
-
 
 def build_pdf_report(filepath, df_results, ranked_inaccurate, ranked_imprecise, ranked_by_range, num_runs, tolerance_mm, status_callback=None): # Added ranked_by_range
     if status_callback: status_callback("Building PDF report...")
