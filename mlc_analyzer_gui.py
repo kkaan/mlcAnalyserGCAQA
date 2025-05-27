@@ -12,6 +12,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Tabl
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from reportlab.lib.units import inch
+from PIL import Image, ImageTk
 import re
 import os
 import threading  # For running analysis in background
@@ -608,12 +609,28 @@ class App(ctk.CTk):
         finally:
             self.after(0, lambda: self.generate_button.configure(state="normal", text="Generate Report"))
 
+def show_splash_and_launch():
+    try:
+        splash = ctk.CTk()
+        splash.overrideredirect(True)
+        splash.geometry("410x410")
+        ctk.set_appearance_mode("dark")
 
-if __name__ == "__main__":
-    # This is important for PyInstaller when using matplotlib with multiprocessing/threading on some platforms
-    # However, with 'Agg' backend, it might not be strictly necessary for this specific case.
-    # from multiprocessing import freeze_support
-    # freeze_support()
+        from PIL import Image
+        img = Image.open("splash.png")
+        splash_image = ctk.CTkImage(light_image=img, dark_image=img, size=(400,400))
+        label = ctk.CTkLabel(splash, text="", image=splash_image)
+        label.pack(expand=True, pady=20)
 
+        splash.after(1500, lambda: [splash.destroy(), launch_main_gui()])
+        splash.mainloop()
+    except Exception as e:
+        print(f"Splash screen skipped: {e}")
+        launch_main_gui()
+
+def launch_main_gui():
     app = App()
     app.mainloop()
+
+if __name__ == "__main__":
+    show_splash_and_launch()
