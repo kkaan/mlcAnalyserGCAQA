@@ -240,12 +240,13 @@ def create_plot_img(df_results, plot_type, bank_filter=None, tolerance_mm=1.0):
 
 
 def create_heatmap_plot_img(df_results, value_col, title):
+    global bounds
     if df_results.empty or value_col not in df_results.columns:
         fig, ax = plt.subplots(figsize=(10, 4))
         ax.text(0.5, 0.5, "No data for heatmap", ha='center', va='center')
         img_buffer = BytesIO()
-        plt.savefig(img_buffer, format='png');
-        plt.close(fig);
+        plt.savefig(img_buffer, format='png')
+        plt.close(fig)
         img_buffer.seek(0)
         return img_buffer
 
@@ -257,8 +258,8 @@ def create_heatmap_plot_img(df_results, value_col, title):
         fig, ax = plt.subplots(figsize=(10, 4))
         ax.text(0.5, 0.5, "No bank data for heatmap", ha='center', va='center')
         img_buffer = BytesIO()
-        plt.savefig(img_buffer, format='png');
-        plt.close(fig);
+        plt.savefig(img_buffer, format='png')
+        plt.close(fig)
         img_buffer.seek(0)
         return img_buffer
 
