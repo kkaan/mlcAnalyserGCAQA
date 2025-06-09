@@ -1,0 +1,17 @@
+{
+  "name": "MLCAnalyzer",
+  "outputfilename": "mlc-analyzer",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "AI Assistant",
+    "email": "ai@example.com"
+  },
+  "info": {
+    "companyName": "Project Inc.",
+    "productName": "MLC Analyzer GO",
+    "copyright": "Copyright (c) 2024"
+  }
+}

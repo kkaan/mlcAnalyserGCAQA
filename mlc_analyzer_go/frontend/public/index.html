@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>MLC Analyzer</title>
+    <link href="/main.css" rel="stylesheet"/>
+</head>
+<body>
+    <div id="splashScreen" class="splash-screen">
+        <img src="/images/splash.png" alt="Loading MLC Analyzer..."/>
+        <p>Loading...</p>
+    </div>
+
+    <div id="app" class="container initially-hidden">
+        <h1>MLC Reproducibility Analyzer (Go Version)</h1>
+
+        <div class="input-group">
+            <label for="csvPath">Input CSV File:</label>
+            <input id="csvPath" readonly type="text"/>
+            <button id="browseCsvBtn">Browse...</button>
+        </div>
+
+        <div class="input-group">
+            <label for="pdfPath">Output PDF File:</label>
+            <input id="pdfPath" readonly type="text"/>
+            <button id="browsePdfBtn">Save As...</button>
+        </div>
+
+        <div class="input-group">
+            <label for="tolerance">Tolerance (mm):</label>
+            <input id="tolerance" type="number" value="1.0" step="0.1"/>
+        </div>
+
+        <button id="generateBtn" class="generate-button">Generate Report</button>
+
+        <div class="status-box">
+            <h2>Status</h2>
+            <pre id="statusLog"></pre>
+        </div>
+    </div>
+    <script src="/main.js"></script>
+</body>
+</html>
